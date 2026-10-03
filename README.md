@@ -19,3 +19,7 @@
 3. Vercel → Project → Settings → Environment Variables: добавьте 6 переменных из `.env` (VITE_FB_API_KEY, VITE_FB_AUTH_DOMAIN, VITE_FB_PROJECT_ID, VITE_FB_STORAGE_BUCKET, VITE_FB_SENDER_ID, VITE_FB_APP_ID) и сделайте Redeploy.
 4. Firebase Console → Authentication → Settings → Authorized domains: добавьте домен вида `ваш-проект.vercel.app`, иначе вход не заработает.
 5. Firebase → Firestore → Rules: вставьте `firestore.rules` и нажмите Publish (нужно для сохранения фона).
+
+## Фон без Firebase
+Кнопка «🖼 Фон» сохраняет тему сразу на вашем устройстве — Firebase для этого не нужен. Чтобы фон видели все посетители без Firebase: нажмите «Скачать theme.json», замените файл `public/theme.json` и задеплойте проект. Если Firebase и его правила настроены, фон дополнительно сохраняется для всех автоматически.
+Ключи Firebase зашиты в `src/firebase.js` как запасные, поэтому сайт работает на Vercel и без переменных окружения.

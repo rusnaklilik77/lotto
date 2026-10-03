@@ -1,7 +1,7 @@
 import {useEffect,useState,useMemo,memo,useRef} from 'react';
 import {createUserWithEmailAndPassword,signInWithEmailAndPassword,onAuthStateChanged,signOut} from 'firebase/auth';
 import {doc,setDoc,updateDoc,deleteDoc,collection,onSnapshot,getDocs,runTransaction,getDoc,writeBatch} from 'firebase/firestore';
-import {auth,db} from './firebase';import {L} from './i18n';import {candidates,screenWidth,parseItems} from './media';
+import {auth,db,fbError} from './firebase';import {L} from './i18n';import {candidates,screenWidth,parseItems} from './media';
 
 const ICONS={mix:['🪙','💵','🪙','💰','💶'],coins:['🪙'],bills:['💵','💶','💴'],clover:['🍀','🪙'],stars:['✨','⭐','🪙']};
 const useMedia=q=>{const[m,setM]=useState(()=>matchMedia(q).matches);useEffect(()=>{const mq=matchMedia(q),h=()=>setM(mq.matches);h();mq.addEventListener('change',h);return()=>mq.removeEventListener('change',h)},[q]);return m};
@@ -67,17 +67,19 @@ function Settings({me,uid,t,fx,setFx,custom,onClose}){const[f,setF]=useState(me)
  <label>{t.amount}: {fx.count}<input type="range" min="6" max="60" value={fx.count} onChange={e=>up({count:+e.target.value})}/></label>
  {custom?.length?<p className="muted">{t.fxCustomNote}</p>:<div className="sets">{Object.keys(ICONS).map(k=><button key={k} className={fx.set===k?'on':''} onClick={()=>up({set:k})}>{ICONS[k][0]} {t.sets[k]}</button>)}</div>}</Panel>}
 
-function SkinAdmin({t,skin,onDraft,onLocal,onClose}){
+function SkinAdmin({t,skin,onDraft,onLocal,onClose}){const[st,setSt]=useState('');
  const[v,setV]=useState({bgDesktop:'',bgMobile:'',dim:30,blur:0,focus:'center',fallText:'',fallCustom:false,...skin});const[busy,setBusy]=useState(false);const[ok,setOk]=useState(false);
  const up=o=>{setOk(false);setV(x=>({...x,...o}))};
  useEffect(()=>{const i=setTimeout(()=>onDraft(v),500);return()=>clearTimeout(i)},[v]);
  const close=()=>{onDraft(null);onClose()};
  const items=useMemo(()=>parseItems(v.fallText),[v.fallText]);
- const save=async()=>{setBusy(true);try{await setDoc(doc(db,'config','theme'),{bgDesktop:v.bgDesktop.trim(),bgMobile:v.bgMobile.trim(),dim:+v.dim,blur:+v.blur,focus:v.focus,fallText:v.fallText,fallCustom:!!v.fallCustom,updatedAt:Date.now()});onDraft(null);setOk(true)}catch(e){
-  // правила Firestore ещё не обновлены → сохраняем хотя бы на этом устройстве и подсказываем, что сделать
-  onLocal({bgDesktop:v.bgDesktop.trim(),bgMobile:v.bgMobile.trim(),dim:+v.dim,blur:+v.blur,focus:v.focus,fallText:v.fallText,fallCustom:!!v.fallCustom});onDraft(null);
-  alert((e.code==='permission-denied'?t.rulesHint:t.err)+'\n\n'+(e.code||e.message))}setBusy(false)};
- const reset=async()=>{if(!confirm(t.bgResetConfirm))return;await setDoc(doc(db,'config','theme'),{bgDesktop:'',bgMobile:'',dim:30,blur:0,focus:'center',fallText:'',fallCustom:false,updatedAt:Date.now()});onDraft(null);onClose()};
+ const pack=()=>({bgDesktop:v.bgDesktop.trim(),bgMobile:v.bgMobile.trim(),dim:+v.dim,blur:+v.blur,focus:v.focus,fallText:v.fallText,fallCustom:!!v.fallCustom});
+ // 1) сохраняем сразу на этом устройстве (Firebase не нужен); 2) пробуем сохранить для всех через Firebase
+ const save=async()=>{setBusy(true);const data=pack(),ts=Date.now();onLocal({...data,savedAt:ts});onDraft(null);setOk(true);setSt('local');
+  if(db){try{await setDoc(doc(db,'config','theme'),{...data,updatedAt:ts});setSt('shared')}catch(e){}}setBusy(false)};
+ const download=()=>{const b=new Blob([JSON.stringify(pack(),null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='theme.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
+ const reset=async()=>{if(!confirm(t.bgResetConfirm))return;const e0={bgDesktop:'',bgMobile:'',dim:30,blur:0,focus:'center',fallText:'',fallCustom:false};onLocal({...e0,savedAt:Date.now()});onDraft(null);
+  if(db){try{await setDoc(doc(db,'config','theme'),{...e0,updatedAt:Date.now()})}catch(e){}}onClose()};
  return <Panel title={'🖼 '+t.background} onClose={close}>
   <p className="muted hint">{t.bgHint}</p>
   <label>{t.bgDesktop}<input placeholder="https://… / drive.google.com/…" value={v.bgDesktop} onChange={e=>up({bgDesktop:e.target.value})}/></label>
@@ -91,6 +93,8 @@ function SkinAdmin({t,skin,onDraft,onLocal,onClose}){
   <div className="prev">{items.map((x,i)=>x.t==='img'?<img key={i} src={x.c[0]} alt="" data-n="0" onError={e=>{const n=+e.target.dataset.n+1;if(n<x.c.length){e.target.dataset.n=n;e.target.src=x.c[n]}else e.target.style.opacity=.2}}/>:<span key={i}>{x.e}</span>)}</div>
   <label className="chk"><input type="checkbox" checked={!!v.fallCustom} onChange={e=>up({fallCustom:e.target.checked})}/>{t.fallUse}</label>
   <button className="btn" disabled={busy} onClick={save}>{busy?'…':ok?t.saved+' ✓':t.save}</button>
+  {st&&<p className="muted hint">{st==='shared'?t.savedShared:t.savedLocal}</p>}
+  <button className="btn ghost" onClick={download}>⬇ {t.exportTheme}</button><p className="muted hint">{t.exportHint}</p>
   <button className="btn ghost" onClick={reset}>{t.bgReset}</button></Panel>}
 
 function CountdownAdmin({t,onClose}){const[v,setV]=useState({months:0,days:0,hours:0,minutes:0,seconds:0});
@@ -149,16 +153,21 @@ function Main({uid,me,lang,setLang,theme,setTheme,fx,setFx,skin,setDraft,setSkin
  {ended&&!seen&&cfg.winners?.length>0&&<DrawModal winners={cfg.winners} names={names} t={t} onClose={()=>{localStorage[key]=1;setSeen(true)}}/>}</>}
 
 export default function App(){const[boot,setBoot]=useState(true);const[user,setUser]=useState(undefined);const[me,setMe]=useState(null);const[notice,setNotice]=useState(false);
- const[skinDb,setSkinDb]=useState(()=>{try{return JSON.parse(localStorage.skin||'{}')}catch{return{}}});const[draft,setDraft]=useState(null);const skin=draft||skinDb;
+ const ld=k=>{try{return JSON.parse(localStorage[k]||'null')}catch{return null}};
+ const[skinDb,setSkinDb]=useState(()=>ld('skin')||{});const[skinFile,setSkinFile]=useState({});const[skinLocal,setSkinLocalS]=useState(()=>ld('skinLocal'));const[draft,setDraft]=useState(null);
+ const skinGlobal=skinDb.updatedAt?skinDb:skinFile;const skinNow=skinLocal||skinGlobal;const skin=draft||skinNow;
+ const setSkinLocal=d=>{setSkinLocalS(d);if(d)localStorage.skinLocal=JSON.stringify(d);else localStorage.removeItem('skinLocal')};
  const custom=useMemo(()=>skin.fallCustom?parseItems(skin.fallText):null,[skin.fallCustom,skin.fallText]);
  const[lang,setLang]=useState(localStorage.lang||'ru');const[theme,setTheme]=useState(localStorage.theme||'dark');
  const[fx,setFx]=useState(()=>{try{return{on:true,size:28,count:24,set:'mix',...JSON.parse(localStorage.fx||'{}')}}catch{return{on:true,size:28,count:24,set:'mix'}}});
  useEffect(()=>{localStorage.lang=lang;localStorage.theme=theme;localStorage.fx=JSON.stringify(fx);document.documentElement.dataset.theme=theme},[lang,theme,fx]);
  useEffect(()=>{const i=setTimeout(()=>setBoot(false),2800);return()=>clearTimeout(i)},[]);
- useEffect(()=>onSnapshot(doc(db,'config','theme'),s=>{const d=s.exists()?s.data():{};setSkinDb(d);localStorage.skin=JSON.stringify(d)},()=>{}),[]);
+ useEffect(()=>{fetch('/theme.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(d=>{if(d&&typeof d==='object')setSkinFile(d)}).catch(()=>{})},[]);
+ useEffect(()=>{if(!db)return;return onSnapshot(doc(db,'config','theme'),s=>{const d=s.exists()?s.data():{};setSkinDb(d);localStorage.skin=JSON.stringify(d);
+  const l=ld('skinLocal');if(l&&d.updatedAt&&d.updatedAt>=l.savedAt)setSkinLocal(null)},()=>{})},[]);
  useEffect(()=>{if(skin.bgDesktop||skin.bgMobile)document.documentElement.dataset.bg='1';else delete document.documentElement.dataset.bg},[skin.bgDesktop,skin.bgMobile]);
- useEffect(()=>onAuthStateChanged(auth,async u=>{setUser(u);if(!u){setMe(null);return}
+ useEffect(()=>{if(!auth)return;return onAuthStateChanged(auth,async u=>{setUser(u);if(!u){setMe(null);return}
   for(let k=0;k<10;k++){const s=await getDoc(doc(db,'users',u.uid));if(s.exists()){setMe(s.data());return}await new Promise(r=>setTimeout(r,600))}
-  setNotice(true);signOut(auth)}),[]);
- let body;if(boot||user===undefined||(user&&!me))body=<Loader/>;else if(!user)body=<Auth t={L[lang]} notice={notice}/>;else body=<Main uid={user.uid} me={me} lang={lang} setLang={setLang} theme={theme} setTheme={setTheme} fx={fx} setFx={setFx} skin={skinDb} setDraft={setDraft} setSkinLocal={d=>{setSkinDb(d);localStorage.skin=JSON.stringify(d)}} custom={custom}/>;
+  setNotice(true);signOut(auth)})},[]);
+ let body;if(!auth)body=<div className="center"><Brand/><div className="card"><h2>⚠️ Firebase</h2><p className="err">{fbError}</p><p className="muted hint">{L[lang].fbSetup}</p></div></div>;else if(boot||user===undefined||(user&&!me))body=<Loader/>;else if(!user)body=<Auth t={L[lang]} notice={notice}/>;else body=<Main uid={user.uid} me={me} lang={lang} setLang={setLang} theme={theme} setTheme={setTheme} fx={fx} setFx={setFx} skin={skinNow} setDraft={setDraft} setSkinLocal={setSkinLocal} custom={custom}/>;
  return <>{!boot&&<Bg skin={skin}/>}{!boot&&<FX fx={fx} custom={custom}/>}{body}</>}
