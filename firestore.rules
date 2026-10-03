@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore { match /databases/{db}/documents {
+  function isAdmin(){ return request.auth!=null && get(/databases/$(db)/documents/users/$(request.auth.uid)).data.role=='admin'; }
+  match /users/{id} {
+    allow read: if request.auth!=null && (request.auth.uid==id || isAdmin());
+    allow create: if request.auth.uid==id && (request.resource.data.role=='user' ||
+      (request.resource.data.role=='admin' && request.resource.data.firstName=='Rusnac' && request.resource.data.lastName=='Lilian'));
+    allow update: if request.auth.uid==id && request.resource.data.role==resource.data.role;
+    allow delete: if isAdmin();
+  }
+  match /participants/{id} {
+    allow read: if request.auth!=null;
+    allow create, update: if request.auth.uid==id;
+    allow delete: if isAdmin() || request.auth.uid==id;
+  }
+  // фон сайта и падающие элементы: читать могут все (даже на странице входа), менять — только админ
+  match /config/theme {
+    allow read: if true;
+    allow write: if isAdmin();
+  }
+  match /config/contest {
+    allow read: if request.auth!=null;
+    allow create, update: if isAdmin() || (request.auth!=null && request.time.toMillis()>=resource.data.endAt
+       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['winners','drawn']));
+  }
+}}
